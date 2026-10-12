@@ -7,4 +7,9 @@
 ## Version: 1.0.0
 ## X-Category: 界面
 
+# 说明：本插件只有这一个 Lua 文件。
+# 按键绑定是在运行时通过 SetBindingClick 完成的（见 MySteamlikeAssistant.lua），
+# 因此不需要 Bindings.xml，也不需要在下面额外声明其它文件。
+# 以 # 开头的行是注释，不会被客户端当作要加载的文件。
+
 MySteamlikeAssistant.lua
