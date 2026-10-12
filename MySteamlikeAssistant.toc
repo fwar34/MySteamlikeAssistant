@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: MySteamlikeAssistant
 ## Title-zhCN: 鼠标视角助手
-## Notes: Start mouselook with F20, stop with F21
-## Notes-zhCN: 接收特殊按键 F20/F21 控制鼠标视角（Mouselook）
+## Notes: Start mouselook with F11, stop with F12
+## Notes-zhCN: 接收特殊按键 F11/F12 控制鼠标视角（Mouselook）
 ## Author:
 ## Version: 1.0.0
 ## X-Category: 界面

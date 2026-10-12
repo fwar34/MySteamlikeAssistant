@@ -2,14 +2,14 @@
 -- MySteamlikeAssistant —— 鼠标视角助手（WoW 3.3.5a / WLK）
 ------------------------------------------------------------------
 -- 作用：
---   接收两个特殊按键 F20 / F21（一般由手柄映射软件或安卓模拟器注入），
+--   接收两个特殊按键 F11 / F12（一般由手柄映射软件或安卓模拟器注入），
 --   用来控制游戏的“鼠标视角”（Mouselook，等价于按住鼠标右键拖动视角）。
 --
---      按 F20  -> 若当前不在鼠标视角，则开启（MouselookStart）
---      按 F21  -> 关闭鼠标视角（MouselookStop）
+--      按 F11  -> 若当前不在鼠标视角，则开启（MouselookStart）
+--      按 F12  -> 关闭鼠标视角（MouselookStop）
 --
 -- 原理：
---   使用 SetBindingClick 把 F20/F21 绑定到两个“隐藏按钮”的点击事件上。
+--   使用 SetBindingClick 把 F11/F12 绑定到两个“隐藏按钮”的点击事件上。
 --   按键触发时，客户端会调用对应按钮的 OnClick 脚本，从而执行开启/关闭逻辑。
 --   这样既不需要 Bindings.xml，也不会出现在游戏“按键设置”界面里，
 --   但绑定是真实生效的（用 /msa 可看到 “CLICK MSA_Btn_F20:LeftButton”）。
@@ -20,14 +20,34 @@
 --   MouselookStop()   -> 关闭鼠标视角
 ------------------------------------------------------------------
 
--- 需要接收的两个按键。若某客户端不识别 F20/F21，可改成其它键（例如 F8 / F9）。
-local START_KEY = "F20"
-local STOP_KEY = "F21"
+-- 需要接收的两个按键。当前先用 F11 / F12，如需更换直接改这里即可。
+local START_KEY = "F11"
+local STOP_KEY = "F12"
 
--- 两个隐藏按钮的全局名。
+-- 两个隐藏按钮的全局名（仅作内部标识，与具体按键无关）。
 -- 注意：SetBindingClick 是“按名字”找按钮的，所以名字必须全局且唯一，不能是 local。
 local BTN_START = "MSA_Btn_F20"
 local BTN_STOP = "MSA_Btn_F21"
+
+------------------------------------------------------------------
+-- 聊天框输出与调试日志
+------------------------------------------------------------------
+
+-- 调试日志开关：用 /msa debug 切换，默认关闭，避免正常游玩时刷屏。
+-- 打开后，每次收到开始/停止键都会在聊天框打印一行，用来确认按键到底有没有送达。
+local debugEnabled = false
+
+-- 统一格式的聊天框消息，带 [MSA] 前缀和颜色。
+local function Print(msg)
+	DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99[MSA]|r " .. tostring(msg))
+end
+
+-- 仅在调试开关打开时输出。
+local function Debug(msg)
+	if debugEnabled then
+		Print(msg)
+	end
+end
 
 ------------------------------------------------------------------
 -- 业务逻辑
@@ -52,17 +72,24 @@ end
 
 -- CreateFrame 创建的框架默认就是隐藏的，无需 Show()。
 -- OnClick 就是按键触发时真正执行的入口。
+-- 这里在动作执行后顺便打一条调试日志（含当前视角状态），方便排查按键是否送达。
 local btnStart = CreateFrame("Button", BTN_START)
-btnStart:SetScript("OnClick", StartMouselook)
+btnStart:SetScript("OnClick", function()
+	StartMouselook()
+	Debug("收到按键 " .. START_KEY .. "（鼠标视角: " .. (IsMouselooking() and "开启" or "关闭") .. "）")
+end)
 
 local btnStop = CreateFrame("Button", BTN_STOP)
-btnStop:SetScript("OnClick", StopMouselook)
+btnStop:SetScript("OnClick", function()
+	StopMouselook()
+	Debug("收到按键 " .. STOP_KEY .. "（鼠标视角: " .. (IsMouselooking() and "开启" or "关闭") .. "）")
+end)
 
 ------------------------------------------------------------------
 -- 按键绑定
 ------------------------------------------------------------------
 
--- 把 F20/F21 挂到两个隐藏按钮上，并写入磁盘持久化。
+-- 把 F11/F12 挂到两个隐藏按钮上，并写入磁盘持久化。
 -- 必须调用 SaveBindings，否则绑定只存在于内存，重载界面后会丢失。
 -- GetCurrentBindingSet() 返回当前生效的按键方案编号（1 或 2）。
 local function ApplyBindings()
@@ -72,13 +99,8 @@ local function ApplyBindings()
 end
 
 ------------------------------------------------------------------
--- 聊天框输出与状态查询（诊断用）
+-- 状态查询（诊断用）
 ------------------------------------------------------------------
-
--- 统一格式的聊天框消息，带 [MSA] 前缀和颜色。
-local function Print(msg)
-	DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99[MSA]|r " .. tostring(msg))
-end
 
 -- 查询某个按键当前绑定的动作。
 -- 正常生效时返回类似 "CLICK MSA_Btn_F20:LeftButton"；
@@ -91,11 +113,12 @@ local function BindingState(key)
 	return action
 end
 
--- 输出当前状态：两个按键的绑定情况 + 当前是否在鼠标视角。
+-- 输出当前状态：两个按键的绑定情况 + 当前是否在鼠标视角 + 调试开关。
 local function Status()
-	Print("F20 绑定: " .. BindingState(START_KEY))
-	Print("F21 绑定: " .. BindingState(STOP_KEY))
+	Print(START_KEY .. " 绑定: " .. BindingState(START_KEY))
+	Print(STOP_KEY .. " 绑定: " .. BindingState(STOP_KEY))
 	Print("当前鼠标视角: " .. (IsMouselooking() and "开启" or "关闭"))
+	Print("调试日志: " .. (debugEnabled and "开启" or "关闭"))
 end
 
 ------------------------------------------------------------------
@@ -105,6 +128,7 @@ end
 --   /msa start     手动开启鼠标视角（用于验证 API 是否可用）
 --   /msa stop      手动关闭鼠标视角
 --   /msa rebind    重新挂载并持久化绑定
+--   /msa debug     开/关调试日志（收到开始/停止键时在聊天框打印）
 -- /bridge 是等价的别名。
 SLASH_MYSTEAMLIKEASSISTANT1 = "/msa"
 SLASH_MYSTEAMLIKEASSISTANT2 = "/bridge"
@@ -117,6 +141,9 @@ SlashCmdList["MYSTEAMLIKEASSISTANT"] = function(msg)
 	elseif msg == "rebind" then
 		ApplyBindings()
 		Status()
+	elseif msg == "debug" then
+		debugEnabled = not debugEnabled
+		Print("调试日志已" .. (debugEnabled and "开启" or "关闭"))
 	else
 		Status()
 	end
@@ -126,13 +153,13 @@ end
 -- 事件：登录后自动挂钩
 ------------------------------------------------------------------
 -- 在 PLAYER_LOGIN 时挂载绑定，确保此刻按键表已加载完成，时机最稳。
--- 挂载后顺手做一次自检；若 F20 仍未生效则给出提示。
+-- 挂载后顺手做一次自检；若开始键仍未生效则给出提示。
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:SetScript("OnEvent", function(self)
 	ApplyBindings()
 	if BindingState(START_KEY) == "未生效" then
-		Print("F20 未生效，客户端可能不识别该按键。")
+		Print(START_KEY .. " 未生效，客户端可能不识别该按键。")
 	end
 	self:UnregisterEvent("PLAYER_LOGIN")
 end)
