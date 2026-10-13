@@ -8,6 +8,10 @@
 --      按 F11  -> 若当前不在鼠标视角，则开启（MouselookStart）
 --      按 F12  -> 关闭鼠标视角（MouselookStop）
 --
+--   另外提供一个「移动自动锁视角」功能（默认关闭，可用 /msa wasd 开关）：
+--   当玩家用 W/A/S/D 方向键开始移动时，若当前不在鼠标视角，则自动开启，
+--   让相机跟随角色移动。实现方式见下方“移动自动锁视角”一节。
+--
 -- 原理：
 --   使用 SetBindingClick 把 F11/F12 绑定到两个“隐藏按钮”的点击事件上。
 --   按键触发时，客户端会调用对应按钮的 OnClick 脚本，从而执行开启/关闭逻辑。
@@ -28,6 +32,11 @@ local STOP_KEY = "F12"
 -- 注意：SetBindingClick 是“按名字”找按钮的，所以名字必须全局且唯一，不能是 local。
 local BTN_START = "MSA_Btn_F20"
 local BTN_STOP = "MSA_Btn_F21"
+
+-- 「移动自动锁视角」开关：开启后，用 W/A/S/D 方向键开始移动时，
+-- 若当前不在鼠标视角，则自动开启。用 /msa wasd 切换。**默认关闭**。
+-- 注意：这是本次运行内的临时开关，重载界面后会恢复为默认值。
+local wasdAutoLock = false
 
 ------------------------------------------------------------------
 -- 聊天框输出与调试日志
@@ -86,6 +95,36 @@ btnStop:SetScript("OnClick", function()
 end)
 
 ------------------------------------------------------------------
+-- 移动自动锁视角（W/A/S/D 方向键）
+------------------------------------------------------------------
+-- 思路（参考 ConsolePort 的实现）：不去重绑 W/A/S/D（那会破坏移动功能），
+-- 而是用 hooksecurefunc 给游戏的“开始移动”函数挂一个后置钩子。
+-- 玩家按 W/A/S/D 时，客户端会调用下列函数，钩子在原函数执行后再触发，
+-- 于是我们可以在不改变移动行为的前提下，顺带把鼠标视角打开。
+--
+--   MoveForwardStart  -> 按 W（前进）
+--   MoveBackwardStart -> 按 S（后退）
+--   StrafeLeftStart   -> 按 A（左平移）
+--   StrafeRightStart  -> 按 D（右平移）
+--
+-- hooksecurefunc 保证钩子一定在原函数之后执行，且不会覆盖原函数，
+-- 因此对移动本身没有任何副作用。
+local MOVE_FUNCS = {
+	"MoveForwardStart",
+	"MoveBackwardStart",
+	"StrafeLeftStart",
+	"StrafeRightStart",
+}
+for _, funcName in ipairs(MOVE_FUNCS) do
+	hooksecurefunc(funcName, function()
+		if wasdAutoLock then
+			StartMouselook()
+			Debug("方向键移动触发自动锁视角（" .. funcName .. "）")
+		end
+	end)
+end
+
+------------------------------------------------------------------
 -- 按键绑定
 ------------------------------------------------------------------
 
@@ -118,7 +157,22 @@ local function Status()
 	Print(START_KEY .. " 绑定: " .. BindingState(START_KEY))
 	Print(STOP_KEY .. " 绑定: " .. BindingState(STOP_KEY))
 	Print("当前鼠标视角: " .. (IsMouselooking() and "开启" or "关闭"))
+	Print("移动自动锁视角: " .. (wasdAutoLock and "开启" or "关闭"))
 	Print("调试日志: " .. (debugEnabled and "开启" or "关闭"))
+	Print("输入 /msa help 查看全部命令")
+end
+
+-- 输出本插件支持的全部斜杠命令。
+local function ShowHelp()
+	Print("可用命令：")
+	Print("  /msa            查看当前状态")
+	Print("  /msa start      手动开启鼠标视角（用于验证 API 是否可用）")
+	Print("  /msa stop       手动关闭鼠标视角")
+	Print("  /msa rebind     重新挂载并持久化绑定")
+	Print("  /msa wasd       开/关「移动自动锁视角」（默认关闭）")
+	Print("  /msa debug      开/关调试日志")
+	Print("  /msa help       显示本帮助")
+	Print("  /bridge         与 /msa 完全等价的别名")
 end
 
 ------------------------------------------------------------------
@@ -128,19 +182,26 @@ end
 --   /msa start     手动开启鼠标视角（用于验证 API 是否可用）
 --   /msa stop      手动关闭鼠标视角
 --   /msa rebind    重新挂载并持久化绑定
+--   /msa wasd      开/关「移动自动锁视角」（W/A/S/D 移动时自动开视角）
 --   /msa debug     开/关调试日志（收到开始/停止键时在聊天框打印）
+--   /msa help      显示命令帮助
 -- /bridge 是等价的别名。
 SLASH_MYSTEAMLIKEASSISTANT1 = "/msa"
 SLASH_MYSTEAMLIKEASSISTANT2 = "/bridge"
 SlashCmdList["MYSTEAMLIKEASSISTANT"] = function(msg)
 	msg = string.lower(msg or "")
-	if msg == "start" then
+	if msg == "help" then
+		ShowHelp()
+	elseif msg == "start" then
 		StartMouselook()
 	elseif msg == "stop" then
 		StopMouselook()
 	elseif msg == "rebind" then
 		ApplyBindings()
 		Status()
+	elseif msg == "wasd" then
+		wasdAutoLock = not wasdAutoLock
+		Print("移动自动锁视角已" .. (wasdAutoLock and "开启" or "关闭"))
 	elseif msg == "debug" then
 		debugEnabled = not debugEnabled
 		Print("调试日志已" .. (debugEnabled and "开启" or "关闭"))
