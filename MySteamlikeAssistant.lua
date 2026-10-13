@@ -121,10 +121,35 @@ local MOVE_FUNCS = {
 	"StrafeLeftStart",
 	"StrafeRightStart",
 }
+
+-- 节流用的时间戳（见下方钩子注释）。
+local lastMoveTrigger = 0
+
+-- 给每个“开始移动”函数挂后置钩子。
+-- ⚠️ 性能要点：TurnLeftStart / TurnRightStart 在按住 A/D 时可能被客户端**每帧调用**，
+--    因此这个钩子必须保持极低开销，否则移动 + 转视角时会因每帧的额外工作而卡顿。
+--    所以：
+--      1) 用「快速短路」把绝大多数调用挡在最前面——开关关闭、或已经处于鼠标视角时，
+--         直接 return，不做任何多余的事；
+--      2) 只有“开关开、且当前没锁定”时才真正锁定一次；
+--      3) 调试字符串仅在调试开关打开时才拼接（避免每帧无谓地分配内存、加重 GC）。
 for _, funcName in ipairs(MOVE_FUNCS) do
 	hooksecurefunc(funcName, function()
-		if wasdAutoLock then
-			StartMouselook()
+		-- 快速短路：不需要做任何事的情形直接返回（最短路径）。
+		if not wasdAutoLock or IsMouselooking() then
+			return
+		end
+
+		-- 走到这里说明：开关开、且当前不在鼠标视角 → 锁一次即可。
+		-- 极短节流，避免同一瞬间被重复处理（正常游玩几乎不会触发）。
+		local now = GetTime()
+		if now - lastMoveTrigger < 0.05 then
+			return
+		end
+		lastMoveTrigger = now
+
+		MouselookStart()
+		if debugEnabled then
 			Debug("方向键移动触发自动锁视角（" .. funcName .. "）")
 		end
 	end)

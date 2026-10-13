@@ -156,7 +156,16 @@ MySteamlikeAssistant/
 > 因此 A/D 对应的是 `TurnLeftStart` / `TurnRightStart`，必须一并挂钩，否则按 A/D 不会触发。
 > 若你把 A/D 改绑成了平移，对应的仍是 Strafe 系列，所以这里两组都挂钩，做到全覆盖。
 
-钩子内部逻辑：`if wasdAutoLock and not IsMouselooking() then MouselookStart() end`。
+钩子内部逻辑（**已做性能优化**）：
+
+1. **快速短路**：若开关关闭、或当前已在鼠标视角，立即 `return`，不做任何多余工作；
+2. 只有“开关开、且当前未锁定”时才 `MouselookStart()` 一次；
+3. 调试字符串**仅在调试开关打开时**才拼接（避免每帧无谓分配内存）。
+
+之所以要这么抠开销：`TurnLeftStart` / `TurnRightStart` 在按住 A/D 时可能被客户端**每帧调用**，
+若每次调用都做额外工作（尤其是字符串拼接 / 反复调用 `MouselookStart`），
+会在“移动 + 同时转视角”时造成明显卡顿。
+
 `wasdAutoLock` 即 `/msa wasd` 控制的开关（默认关闭）。
 
 > `hooksecurefunc` 保证钩子一定在原函数**之后**执行，且**不覆盖**原函数，
