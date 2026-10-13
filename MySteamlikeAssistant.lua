@@ -125,7 +125,14 @@ local MOVE_FUNCS = {
 -- 节流用的时间戳（见下方钩子注释）。
 local lastMoveTrigger = 0
 
--- 给每个“开始移动”函数挂后置钩子。
+-- 是否已经安装过移动钩子。WoW 的 hooksecurefunc **没有注销（unhook）接口**，
+-- 钩子只能安装、无法真正移除。因此这里采用「懒安装」：
+-- 只在该功能被打开时才安装钩子；关闭状态下不会安装。
+-- 默认关闭 → 每次 /reload 后只要没开过该功能，就根本不会安装任何钩子。
+-- （若“开过又关掉”，钩子仍会保留，但会在入口处快速短路，几乎零开销。）
+local moveHooksInstalled = false
+
+-- 给每个“开始移动”函数挂后置钩子。仅在需要时调用一次，重复调用直接返回。
 -- ⚠️ 性能要点：TurnLeftStart / TurnRightStart 在按住 A/D 时可能被客户端**每帧调用**，
 --    因此这个钩子必须保持极低开销，否则移动 + 转视角时会因每帧的额外工作而卡顿。
 --    所以：
@@ -133,26 +140,33 @@ local lastMoveTrigger = 0
 --         直接 return，不做任何多余的事；
 --      2) 只有“开关开、且当前没锁定”时才真正锁定一次；
 --      3) 调试字符串仅在调试开关打开时才拼接（避免每帧无谓地分配内存、加重 GC）。
-for _, funcName in ipairs(MOVE_FUNCS) do
-	hooksecurefunc(funcName, function()
-		-- 快速短路：不需要做任何事的情形直接返回（最短路径）。
-		if not wasdAutoLock or IsMouselooking() then
-			return
-		end
+local function InstallMoveHooks()
+	if moveHooksInstalled then
+		return
+	end
+	moveHooksInstalled = true
 
-		-- 走到这里说明：开关开、且当前不在鼠标视角 → 锁一次即可。
-		-- 极短节流，避免同一瞬间被重复处理（正常游玩几乎不会触发）。
-		local now = GetTime()
-		if now - lastMoveTrigger < 0.05 then
-			return
-		end
-		lastMoveTrigger = now
+	for _, funcName in ipairs(MOVE_FUNCS) do
+		hooksecurefunc(funcName, function()
+			-- 快速短路：不需要做任何事的情形直接返回（最短路径）。
+			if not wasdAutoLock or IsMouselooking() then
+				return
+			end
 
-		MouselookStart()
-		if debugEnabled then
-			Debug("方向键移动触发自动锁视角（" .. funcName .. "）")
-		end
-	end)
+			-- 走到这里说明：开关开、且当前不在鼠标视角 → 锁一次即可。
+			-- 极短节流，避免同一瞬间被重复处理（正常游玩几乎不会触发）。
+			local now = GetTime()
+			if now - lastMoveTrigger < 0.05 then
+				return
+			end
+			lastMoveTrigger = now
+
+			MouselookStart()
+			if debugEnabled then
+				Debug("方向键移动触发自动锁视角（" .. funcName .. "）")
+			end
+		end)
+	end
 end
 
 ------------------------------------------------------------------
@@ -232,6 +246,10 @@ SlashCmdList["MYSTEAMLIKEASSISTANT"] = function(msg)
 		Status()
 	elseif msg == "wasd" then
 		wasdAutoLock = not wasdAutoLock
+		-- 打开时才安装移动钩子（hooksecurefunc 无法注销，所以采用懒安装）。
+		if wasdAutoLock then
+			InstallMoveHooks()
+		end
 		Print("移动自动锁视角已" .. (wasdAutoLock and "开启" or "关闭"))
 	elseif msg == "debug" then
 		debugEnabled = not debugEnabled
@@ -250,6 +268,11 @@ local frame = CreateFrame("Frame")
 frame:RegisterEvent("PLAYER_LOGIN")
 frame:SetScript("OnEvent", function(self)
 	ApplyBindings()
+	-- 仅当默认值就是开启（有人把 wasdAutoLock 常量改成了 true）时才安装移动钩子；
+	-- 默认关闭 → 什么都不做，保证“没开过就不挂钩”。
+	if wasdAutoLock then
+		InstallMoveHooks()
+	end
 	if BindingState(START_KEY) == "未生效" then
 		Print(START_KEY .. " 未生效，客户端可能不识别该按键。")
 	end
