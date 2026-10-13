@@ -62,17 +62,60 @@ end
 -- 业务逻辑
 ------------------------------------------------------------------
 
+-- 本地状态标记：我们认为当前是否处于鼠标视角。
+-- 目的：避免在“每帧都可能被调用”的移动函数钩子里反复调用 IsMouselooking()（C API 调用较贵）。
+-- 规则：
+--   * 只在该标记为“未锁定”时才去判断一次并锁定，随后把标记置为 true；
+--   * 标记为 true 后，钩子热路径只做一次布尔判断，不再调用任何 API；
+--   * 另用低频轮询侦测视角是否被解除（例如长按右键松开），解除后还原标记，
+--     以便下次移动时能再次自动锁定。
+local mouselookActive = false
+
+-- 低频轮询：只在“标记为已锁定”期间运行，每 POLL_INTERVAL 秒用一次 IsMouselooking() 侦测解除。
+-- 用累计 elapsed 代替 GetTime()，避免每帧额外的 C 调用。
+local POLL_INTERVAL = 0.3
+local pollElapsed = 0
+local poller = CreateFrame("Frame")
+
+local function PollMouselook(self, elapsed)
+	pollElapsed = pollElapsed + elapsed
+	if pollElapsed < POLL_INTERVAL then
+		return
+	end
+	pollElapsed = 0
+	if not IsMouselooking() then
+		-- 视角已被解除：还原标记并停止轮询，恢复零开销。
+		mouselookActive = false
+		self:SetScript("OnUpdate", nil)
+	end
+end
+
+-- 记录为“已锁定”，并启动低频轮询以侦测解除。
+local function MarkMouselookActive()
+	mouselookActive = true
+	pollElapsed = 0
+	poller:SetScript("OnUpdate", PollMouselook)
+end
+
+-- 记录为“未锁定”，并停止轮询。
+local function ClearMouselookActive()
+	mouselookActive = false
+	poller:SetScript("OnUpdate", nil)
+end
+
 -- 开启鼠标视角。
 -- 先判断 IsMouselooking()，避免在已经处于鼠标视角时重复调用 MouselookStart。
 local function StartMouselook()
 	if not IsMouselooking() then
 		MouselookStart()
 	end
+	MarkMouselookActive()
 end
 
 -- 关闭鼠标视角。
 local function StopMouselook()
 	MouselookStop()
+	ClearMouselookActive()
 end
 
 ------------------------------------------------------------------
@@ -122,9 +165,6 @@ local MOVE_FUNCS = {
 	"StrafeRightStart",
 }
 
--- 节流用的时间戳（见下方钩子注释）。
-local lastMoveTrigger = 0
-
 -- 是否已经安装过移动钩子。WoW 的 hooksecurefunc **没有注销（unhook）接口**，
 -- 钩子只能安装、无法真正移除。因此这里采用「懒安装」：
 -- 只在该功能被打开时才安装钩子；关闭状态下不会安装。
@@ -133,13 +173,14 @@ local lastMoveTrigger = 0
 local moveHooksInstalled = false
 
 -- 给每个“开始移动”函数挂后置钩子。仅在需要时调用一次，重复调用直接返回。
--- ⚠️ 性能要点：TurnLeftStart / TurnRightStart 在按住 A/D 时可能被客户端**每帧调用**，
+-- ⚠️ 性能要点：TurnLeftStart / TurnRightStart 在转视角时会被客户端**每帧调用**，
 --    因此这个钩子必须保持极低开销，否则移动 + 转视角时会因每帧的额外工作而卡顿。
 --    所以：
---      1) 用「快速短路」把绝大多数调用挡在最前面——开关关闭、或已经处于鼠标视角时，
---         直接 return，不做任何多余的事；
---      2) 只有“开关开、且当前没锁定”时才真正锁定一次；
---      3) 调试字符串仅在调试开关打开时才拼接（避免每帧无谓地分配内存、加重 GC）。
+--      1) 热路径只做一次布尔判断——开关关闭、或本地标记已是“已锁定”时立即 return，
+--         **不调用任何 API**（含 IsMouselooking）；
+--      2) 只有“开关开、且标记为未锁定”时才去判断并锁定一次；
+--      3) 调试字符串仅在调试开关打开时才拼接（避免无谓地分配内存、加重 GC）。
+--    视角被解除的侦测交给低频轮询 PollMouselook，见“业务逻辑”一节。
 local function InstallMoveHooks()
 	if moveHooksInstalled then
 		return
@@ -148,20 +189,22 @@ local function InstallMoveHooks()
 
 	for _, funcName in ipairs(MOVE_FUNCS) do
 		hooksecurefunc(funcName, function()
-			-- 快速短路：不需要做任何事的情形直接返回（最短路径）。
-			if not wasdAutoLock or IsMouselooking() then
+			-- 热路径：开关关闭、或本地标记已是“已锁定”时，只做一次布尔判断就返回。
+			-- 这是性能关键：转视角时本函数会被每帧调用。
+			if not wasdAutoLock or mouselookActive then
 				return
 			end
 
-			-- 走到这里说明：开关开、且当前不在鼠标视角 → 锁一次即可。
-			-- 极短节流，避免同一瞬间被重复处理（正常游玩几乎不会触发）。
-			local now = GetTime()
-			if now - lastMoveTrigger < 0.05 then
+			-- 走到这里：开关开、且本地标记为“未锁定”。
+			-- 先做一次真实判断，兼容“用其它方式（如长按右键）已进入视角”的情况。
+			if IsMouselooking() then
+				MarkMouselookActive()
 				return
 			end
-			lastMoveTrigger = now
 
+			-- 未锁定 → 锁定一次，并记录标记。
 			MouselookStart()
+			MarkMouselookActive()
 			if debugEnabled then
 				Debug("方向键移动触发自动锁视角（" .. funcName .. "）")
 			end
@@ -202,6 +245,7 @@ local function Status()
 	Print(START_KEY .. " 绑定: " .. BindingState(START_KEY))
 	Print(STOP_KEY .. " 绑定: " .. BindingState(STOP_KEY))
 	Print("当前鼠标视角: " .. (IsMouselooking() and "开启" or "关闭"))
+	Print("本地视角标记: " .. (mouselookActive and "已锁定" or "未锁定"))
 	Print("移动自动锁视角: " .. (wasdAutoLock and "开启" or "关闭"))
 	Print("调试日志: " .. (debugEnabled and "开启" or "关闭"))
 	Print("输入 /msa help 查看全部命令")
