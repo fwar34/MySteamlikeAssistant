@@ -102,16 +102,22 @@ end)
 -- 玩家按 W/A/S/D 时，客户端会调用下列函数，钩子在原函数执行后再触发，
 -- 于是我们可以在不改变移动行为的前提下，顺带把鼠标视角打开。
 --
+-- WoW 默认键位下，方向键对应的函数是：
 --   MoveForwardStart  -> 按 W（前进）
 --   MoveBackwardStart -> 按 S（后退）
---   StrafeLeftStart   -> 按 A（左平移）
---   StrafeRightStart  -> 按 D（右平移）
+--   TurnLeftStart     -> 按 A（左转）      <-- 注意：默认 A 是“转向”，不是“平移”
+--   TurnRightStart    -> 按 D（右转）      <-- 默认 D 是“转向”，不是“平移”
+--   StrafeLeftStart   -> 按 Q（左平移）
+--   StrafeRightStart  -> 按 E（右平移）
+-- （若你把 A/D 改绑成了平移，对应的仍是 Strafe 系列，所以这里一并挂钩，全覆盖。）
 --
 -- hooksecurefunc 保证钩子一定在原函数之后执行，且不会覆盖原函数，
 -- 因此对移动本身没有任何副作用。
 local MOVE_FUNCS = {
 	"MoveForwardStart",
 	"MoveBackwardStart",
+	"TurnLeftStart",
+	"TurnRightStart",
 	"StrafeLeftStart",
 	"StrafeRightStart",
 }

@@ -143,12 +143,18 @@ MySteamlikeAssistant/
 玩家按方向键时，客户端会调用这些函数，钩子在原函数执行完之后再触发，
 于是我们能在**不改变移动行为**的前提下顺带打开鼠标视角：
 
-| 被挂钩的函数 | 对应按键 |
+| 被挂钩的函数 | 对应按键（WoW 默认键位） |
 | --- | --- |
 | `MoveForwardStart` | W（前进） |
 | `MoveBackwardStart` | S（后退） |
-| `StrafeLeftStart` | A（左平移） |
-| `StrafeRightStart` | D（右平移） |
+| `TurnLeftStart` | A（左转） |
+| `TurnRightStart` | D（右转） |
+| `StrafeLeftStart` | Q（左平移） |
+| `StrafeRightStart` | E（右平移） |
+
+> 注意：WoW 默认键位里 **A/D 是“转向”（Turn），Q/E 才是“平移”（Strafe）**。
+> 因此 A/D 对应的是 `TurnLeftStart` / `TurnRightStart`，必须一并挂钩，否则按 A/D 不会触发。
+> 若你把 A/D 改绑成了平移，对应的仍是 Strafe 系列，所以这里两组都挂钩，做到全覆盖。
 
 钩子内部逻辑：`if wasdAutoLock and not IsMouselooking() then MouselookStart() end`。
 `wasdAutoLock` 即 `/msa wasd` 控制的开关（默认关闭）。
