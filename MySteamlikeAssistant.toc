@@ -4,8 +4,9 @@
 ## Notes: Start mouselook with F11, stop with F12
 ## Notes-zhCN: 接收特殊按键 F11/F12 控制鼠标视角（Mouselook）
 ## Author:
-## Version: 1.0.0
+## Version: 1.1.0
 ## X-Category: 界面
+## SavedVariables: MySteamlikeAssistantDB
 
 # 说明：本插件只有这一个 Lua 文件。
 # 按键绑定是在运行时通过 SetBindingClick 完成的（见 MySteamlikeAssistant.lua），

@@ -198,6 +198,72 @@ local function Status()
 	Print("输入 /msa help 查看全部命令")
 end
 
+------------------------------------------------------------------
+-- 设置面板（Esc → 界面 → 鼠标视角助手）
+------------------------------------------------------------------
+-- 3.3.5a 没有独立的“插件”标签页，插件设置是用 InterfaceOptions_AddCategory
+-- 挂到“界面”设置里的一个分类，与“游戏”“声音”等并列。
+-- 勾选框使用 InterfaceOptionsCheckButtonTemplate，外观与暴雪原生设置一致。
+local optionsPanel = CreateFrame("Frame", "MSA_OptionsPanel", UIParent)
+optionsPanel.name = "鼠标视角助手"
+optionsPanel:Hide()
+
+local optionsTitle = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+optionsTitle:SetPoint("TOPLEFT", 16, -16)
+optionsTitle:SetText("鼠标视角助手")
+
+local optionsDesc = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+optionsDesc:SetPoint("TOPLEFT", optionsTitle, "BOTTOMLEFT", 0, -8)
+optionsDesc:SetPoint("RIGHT", optionsPanel, "RIGHT", -16, 0)
+optionsDesc:SetJustifyH("LEFT")
+optionsDesc:SetText("接收 F11 / F12 控制鼠标视角。以下设置会自动保存，重载界面后仍然保留。")
+
+-- 给勾选框挂上暴雪风格的鼠标提示。
+local function SetOptionTooltip(btn, text)
+	btn.tooltipText = text
+	btn:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText(self.tooltipText, 1, 1, 1, 1, true)
+		GameTooltip:Show()
+	end)
+	btn:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+	end)
+end
+
+local cbWASD = CreateFrame("CheckButton", "MSA_CB_WASD", optionsPanel, "InterfaceOptionsCheckButtonTemplate")
+cbWASD:SetPoint("TOPLEFT", optionsDesc, "BOTTOMLEFT", 0, -16)
+_G["MSA_CB_WASDText"]:SetText("移动自动锁视角（按 W/A/S/D 移动时自动开启鼠标视角）")
+SetOptionTooltip(cbWASD, "开启后，按 W/A/S/D 开始移动时若未锁定视角则自动锁定；按 F12 或鼠标右键会重置，下次移动可再次锁定。")
+cbWASD:SetScript("OnClick", function(self)
+	wasdAutoLock = self:GetChecked() and true or false
+	if MySteamlikeAssistantDB then MySteamlikeAssistantDB.wasdAutoLock = wasdAutoLock end
+	Print("移动自动锁视角已" .. (wasdAutoLock and "开启" or "关闭"))
+end)
+
+local cbDebug = CreateFrame("CheckButton", "MSA_CB_Debug", optionsPanel, "InterfaceOptionsCheckButtonTemplate")
+cbDebug:SetPoint("TOPLEFT", cbWASD, "BOTTOMLEFT", 0, -4)
+_G["MSA_CB_DebugText"]:SetText("调试日志（在聊天框打印按键与触发信息）")
+SetOptionTooltip(cbDebug, "开启后，每次收到 F11/F12 或方向键触发时都会在聊天框打印一行，便于确认按键是否送达。")
+cbDebug:SetScript("OnClick", function(self)
+	debugEnabled = self:GetChecked() and true or false
+	if MySteamlikeAssistantDB then MySteamlikeAssistantDB.debugEnabled = debugEnabled end
+	Print("调试日志已" .. (debugEnabled and "开启" or "关闭"))
+end)
+
+-- 只读展示：两个按键当前的绑定状态。
+local bindText = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+bindText:SetPoint("TOPLEFT", cbDebug, "BOTTOMLEFT", 0, -20)
+
+-- 面板显示时同步控件状态与绑定信息（可能在别处用 /msa 命令改过）。
+optionsPanel:SetScript("OnShow", function()
+	cbWASD:SetChecked(wasdAutoLock)
+	cbDebug:SetChecked(debugEnabled)
+	bindText:SetText(START_KEY .. " 绑定: " .. BindingState(START_KEY) .. "     " .. STOP_KEY .. " 绑定: " .. BindingState(STOP_KEY))
+end)
+
+InterfaceOptions_AddCategory(optionsPanel)
+
 -- 输出本插件支持的全部斜杠命令。
 local function ShowHelp()
 	Print("可用命令：")
@@ -209,6 +275,7 @@ local function ShowHelp()
 	Print("  /msa debug      开/关调试日志")
 	Print("  /msa help       显示本帮助")
 	Print("  /bridge         与 /msa 完全等价的别名")
+	Print("提示：以上设置也可在 Esc → 界面 → 鼠标视角助手中调整")
 end
 
 ------------------------------------------------------------------
@@ -237,9 +304,11 @@ SlashCmdList["MYSTEAMLIKEASSISTANT"] = function(msg)
 		Status()
 	elseif msg == "wasd" then
 		wasdAutoLock = not wasdAutoLock
+		if MySteamlikeAssistantDB then MySteamlikeAssistantDB.wasdAutoLock = wasdAutoLock end
 		Print("移动自动锁视角已" .. (wasdAutoLock and "开启" or "关闭"))
 	elseif msg == "debug" then
 		debugEnabled = not debugEnabled
+		if MySteamlikeAssistantDB then MySteamlikeAssistantDB.debugEnabled = debugEnabled end
 		Print("调试日志已" .. (debugEnabled and "开启" or "关闭"))
 	else
 		Status()
@@ -247,16 +316,30 @@ SlashCmdList["MYSTEAMLIKEASSISTANT"] = function(msg)
 end
 
 ------------------------------------------------------------------
--- 事件：登录后自动挂钩
+-- 事件：加载存档 + 登录后挂钩
 ------------------------------------------------------------------
--- 在 PLAYER_LOGIN 时挂载绑定，确保此刻按键表已加载完成，时机最稳。
--- 挂载后顺手做一次自检；若开始键仍未生效则给出提示。
+-- ADDON_LOADED 时把存档读入内存：首次运行或字段缺失时补默认值。
 local frame = CreateFrame("Frame")
+frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("PLAYER_LOGIN")
-frame:SetScript("OnEvent", function(self)
-	ApplyBindings()
-	if BindingState(START_KEY) == "未生效" then
-		Print(START_KEY .. " 未生效，客户端可能不识别该按键。")
+frame:SetScript("OnEvent", function(self, event, arg1)
+	if event == "ADDON_LOADED" and arg1 == "MySteamlikeAssistant" then
+		local d = MySteamlikeAssistantDB
+		if type(d) ~= "table" then
+			d = {}
+			MySteamlikeAssistantDB = d
+		end
+		if d.wasdAutoLock == nil then d.wasdAutoLock = false end
+		if d.debugEnabled == nil then d.debugEnabled = false end
+		wasdAutoLock = d.wasdAutoLock
+		debugEnabled = d.debugEnabled
+		self:UnregisterEvent("ADDON_LOADED")
+	elseif event == "PLAYER_LOGIN" then
+		-- 此刻按键表已加载完成，挂载绑定时机最稳；随后做一次自检。
+		ApplyBindings()
+		if BindingState(START_KEY) == "未生效" then
+			Print(START_KEY .. " 未生效，客户端可能不识别该按键。")
+		end
+		self:UnregisterEvent("PLAYER_LOGIN")
 	end
-	self:UnregisterEvent("PLAYER_LOGIN")
 end)
