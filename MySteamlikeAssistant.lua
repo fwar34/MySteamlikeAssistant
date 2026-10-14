@@ -38,6 +38,13 @@ local BTN_STOP = "MSA_Btn_F21"
 -- 注意：这是本次运行内的临时开关，重载界面后会恢复为默认值。
 local wasdAutoLock = false
 
+-- WASD 本次“已锁定”标记：一旦通过方向键锁上视角，就把后续按键直接短路，
+-- 不再每次按键都调用 IsMouselooking() 判断，避免无谓的重复检查。
+-- 以下情况会重置该标记，以便下次移动能重新判断并锁定：
+--   * 按 F12 / 输入 /msa stop 停止视角；
+--   * 按下或松开鼠标右键（手动转向 / 看视角）。
+local wasdLocked = false
+
 ------------------------------------------------------------------
 -- 聊天框输出与调试日志
 ------------------------------------------------------------------
@@ -71,8 +78,10 @@ local function StartMouselook()
 end
 
 -- 关闭鼠标视角。
+-- 停止时清掉 WASD 的“已锁定”标记，让下次方向键移动可以重新判断并锁定。
 local function StopMouselook()
 	MouselookStop()
+	wasdLocked = false
 end
 
 ------------------------------------------------------------------
@@ -123,12 +132,33 @@ local MOVE_FUNCS = {
 }
 for _, funcName in ipairs(MOVE_FUNCS) do
 	hooksecurefunc(funcName, function()
-		if wasdAutoLock then
-			StartMouselook()
-			Debug("方向键移动触发自动锁视角（" .. funcName .. "）")
+		if not wasdAutoLock then
+			return
 		end
+		-- 已经锁过一次：直接跳过，不再每次按键都判断视角状态。
+		if wasdLocked then
+			return
+		end
+		StartMouselook()
+		wasdLocked = true
+		Debug("方向键移动触发自动锁视角（" .. funcName .. "）")
 	end)
 end
+
+------------------------------------------------------------------
+-- 鼠标右键：重置 WASD 自动锁定标记
+------------------------------------------------------------------
+-- 客户端默认把鼠标右键绑定为 TURNORACTION（手动转向 / 看视角），
+-- 其处理函数就是 TurnOrActionStart（按下）和 TurnOrActionStop（松开）。
+-- 这里给两者挂上钩子：只要玩家按 / 松右键，就清掉 wasdLocked，
+-- 这样用右键手动看过视角后，下一次方向键移动仍能重新自动锁定。
+-- hooksecurefunc 只做后置钩子，不会改变右键原有的转向/选中行为。
+hooksecurefunc("TurnOrActionStart", function()
+	wasdLocked = false
+end)
+hooksecurefunc("TurnOrActionStop", function()
+	wasdLocked = false
+end)
 
 ------------------------------------------------------------------
 -- 按键绑定
