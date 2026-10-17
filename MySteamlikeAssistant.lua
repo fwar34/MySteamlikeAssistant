@@ -90,17 +90,30 @@ end
 
 -- CreateFrame 创建的框架默认就是隐藏的，无需 Show()。
 -- OnClick 就是按键触发时真正执行的入口。
--- 这里在动作执行后顺便打一条调试日志（含当前视角状态），方便排查按键是否送达。
+-- 这里在动作执行后顺便打一条调试日志（含触发来源与当前视角状态），方便排查输入是否送达。
+-- 把触发来源（鼠标按键）一并写进日志：SetBindingClick 用的是左键，
+-- 正常应显示“左键点击”，也方便确认注入的输入究竟有没有送到。
+local function ClickText(button)
+	if button == "LeftButton" then
+		return "左键点击"
+	elseif button == "RightButton" then
+		return "右键点击"
+	elseif button == "MiddleButton" then
+		return "中键点击"
+	end
+	return tostring(button) .. " 点击"
+end
+
 local btnStart = CreateFrame("Button", BTN_START)
-btnStart:SetScript("OnClick", function()
+btnStart:SetScript("OnClick", function(_, button)
 	StartMouselook()
-	Debug("收到按键 " .. START_KEY .. "（鼠标视角: " .. (IsMouselooking() and "开启" or "关闭") .. "）")
+	Debug("收到按键 " .. START_KEY .. "（" .. ClickText(button) .. "，鼠标视角: " .. (IsMouselooking() and "开启" or "关闭") .. "）")
 end)
 
 local btnStop = CreateFrame("Button", BTN_STOP)
-btnStop:SetScript("OnClick", function()
+btnStop:SetScript("OnClick", function(_, button)
 	StopMouselook()
-	Debug("收到按键 " .. STOP_KEY .. "（鼠标视角: " .. (IsMouselooking() and "开启" or "关闭") .. "）")
+	Debug("收到按键 " .. STOP_KEY .. "（" .. ClickText(button) .. "，鼠标视角: " .. (IsMouselooking() and "开启" or "关闭") .. "）")
 end)
 
 ------------------------------------------------------------------
