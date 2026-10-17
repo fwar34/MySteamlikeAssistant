@@ -233,7 +233,7 @@ end
 
 local cbWASD = CreateFrame("CheckButton", "MSA_CB_WASD", optionsPanel, "InterfaceOptionsCheckButtonTemplate")
 cbWASD:SetPoint("TOPLEFT", optionsDesc, "BOTTOMLEFT", 0, -16)
-_G["MSA_CB_WASDText"]:SetText("移动自动锁视角（按 W/A/S/D 移动时自动开启鼠标视角）")
+_G["MSA_CB_WASDText"]:SetText("移动自动锁视角")
 SetOptionTooltip(cbWASD, "开启后，按 W/A/S/D 开始移动时若未锁定视角则自动锁定；按 F12 或鼠标右键会重置，下次移动可再次锁定。")
 cbWASD:SetScript("OnClick", function(self)
 	wasdAutoLock = self:GetChecked() and true or false
@@ -243,7 +243,7 @@ end)
 
 local cbDebug = CreateFrame("CheckButton", "MSA_CB_Debug", optionsPanel, "InterfaceOptionsCheckButtonTemplate")
 cbDebug:SetPoint("TOPLEFT", cbWASD, "BOTTOMLEFT", 0, -4)
-_G["MSA_CB_DebugText"]:SetText("调试日志（在聊天框打印按键与触发信息）")
+_G["MSA_CB_DebugText"]:SetText("调试日志")
 SetOptionTooltip(cbDebug, "开启后，每次收到 F11/F12 或方向键触发时都会在聊天框打印一行，便于确认按键是否送达。")
 cbDebug:SetScript("OnClick", function(self)
 	debugEnabled = self:GetChecked() and true or false
@@ -252,14 +252,26 @@ cbDebug:SetScript("OnClick", function(self)
 end)
 
 -- 只读展示：两个按键当前的绑定状态。
+-- 只显示“已生效/未生效”，不显示底层动作串（如 CLICK ...:LeftButton），
+-- 避免文字过长顶出面板边框；同时加右锚点，万一超长也能在面板内换行。
 local bindText = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
 bindText:SetPoint("TOPLEFT", cbDebug, "BOTTOMLEFT", 0, -20)
+bindText:SetPoint("RIGHT", optionsPanel, "RIGHT", -16, 0)
+bindText:SetJustifyH("LEFT")
 
 -- 面板显示时同步控件状态与绑定信息（可能在别处用 /msa 命令改过）。
 optionsPanel:SetScript("OnShow", function()
 	cbWASD:SetChecked(wasdAutoLock)
 	cbDebug:SetChecked(debugEnabled)
-	bindText:SetText(START_KEY .. " 绑定: " .. BindingState(START_KEY) .. "     " .. STOP_KEY .. " 绑定: " .. BindingState(STOP_KEY))
+	local s1 = BindingState(START_KEY)
+	local s2 = BindingState(STOP_KEY)
+	if s1 ~= "未生效" then
+		s1 = "已生效"
+	end
+	if s2 ~= "未生效" then
+		s2 = "已生效"
+	end
+	bindText:SetText(START_KEY .. " 绑定: " .. s1 .. "    " .. STOP_KEY .. " 绑定: " .. s2)
 end)
 
 InterfaceOptions_AddCategory(optionsPanel)
