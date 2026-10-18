@@ -113,6 +113,85 @@ lockCheckFrame:SetScript("OnUpdate", function(_, elapsed)
 end)
 
 ------------------------------------------------------------------
+-- 临时诊断（/msa diag）：排查鼠标输入层问题时使用
+------------------------------------------------------------------
+-- 用途：卡住的那一刻，看「客户端内部到底看到了什么」。
+-- 开启后每秒打印一行，并在视角状态 / 鼠标焦点变化时立即补打一行；
+-- 鼠标焦点变化正是 tooltip 跟着切换的对应物。
+-- 注意：这是临时排查手段，问题定位后应整段删除，并同时去掉 /msa diag 命令。
+local diagEnabled = false
+local DIAG_INTERVAL = 1
+
+local diagFrame = CreateFrame("Frame", nil, UIParent)
+diagFrame:SetSize(1, 1)
+local diagElapsed = 0
+local diagLastMouselook = nil
+local diagLastFocus = nil
+
+-- 鼠标当前所在框体的名字；不在框体上（指向 3D 世界）时返回 WorldFrame 或无。
+local function FocusName()
+	local f = GetMouseFocus()
+	if not f or not f.GetName then
+		return "无"
+	end
+	return f:GetName() or "(匿名框体)"
+end
+
+-- 一行完整状态：视角是否开启、客户端看到的光标坐标、鼠标在哪个框体、左右键是否按下。
+local function DiagLine(tag)
+	local x, y = GetCursorPosition()
+	Print(string.format(
+		"[诊断] %s 视角=%s 坐标=(%d, %d) 焦点=%s 左键=%s 右键=%s",
+		tag,
+		IsMouselooking() and "开启" or "关闭",
+		math.floor(x or -1), math.floor(y or -1),
+		FocusName(),
+		IsMouseButtonDown("LeftButton") and "按下" or "松开",
+		IsMouseButtonDown("RightButton") and "按下" or "松开"
+	))
+end
+
+diagFrame:SetScript("OnUpdate", function(_, elapsed)
+	if not diagEnabled then
+		return
+	end
+	-- 变化即时打印：视角状态、鼠标焦点。
+	local mLock = IsMouselooking()
+	local focus = FocusName()
+	if mLock ~= diagLastMouselook then
+		diagLastMouselook = mLock
+		DiagLine("视角变化")
+	end
+	if focus ~= diagLastFocus then
+		diagLastFocus = focus
+		DiagLine("焦点变化")
+	end
+	-- 周期性打印一行，便于卡住时看坐标是否还在动。
+	diagElapsed = diagElapsed + elapsed
+	if diagElapsed < DIAG_INTERVAL then
+		return
+	end
+	diagElapsed = 0
+	DiagLine("周期")
+end)
+
+local function ToggleDiag()
+	diagEnabled = not diagEnabled
+	if diagEnabled then
+		diagElapsed = 0
+		-- 置空让首个 OnUpdate 立刻以「视角变化」打到当前状态。
+		diagLastMouselook = nil
+		diagLastFocus = nil
+		diagFrame:Show()
+		Print("诊断已开启：每秒打印一行客户端内部鼠标状态，视角/焦点变化时立即补一行。")
+		Print("卡住时直接看聊天框最近几行即可（无需再输入命令）。再输入一次 /msa diag 关闭。")
+	else
+		diagFrame:Hide()
+		Print("诊断已关闭")
+	end
+end
+
+------------------------------------------------------------------
 -- 业务逻辑
 ------------------------------------------------------------------
 
@@ -345,6 +424,7 @@ local function ShowHelp()
 	Print("  /msa rebind     重新挂载并持久化绑定")
 	Print("  /msa wasd       开/关「移动自动锁视角」（默认关闭）")
 	Print("  /msa debug      开/关调试日志")
+	Print("  /msa diag       开/关临时诊断（打印客户端内部的鼠标状态，排查输入问题用）")
 	Print("  /msa help       显示本帮助")
 	Print("  /bridge         与 /msa 完全等价的别名")
 	Print("提示：以上设置也可在 Esc → 界面 → MySteamlikeAssistant 中调整")
@@ -382,6 +462,8 @@ SlashCmdList["MYSTEAMLIKEASSISTANT"] = function(msg)
 		debugEnabled = not debugEnabled
 		if MySteamlikeAssistantDB then MySteamlikeAssistantDB.debugEnabled = debugEnabled end
 		Print("调试日志已" .. (debugEnabled and "开启" or "关闭"))
+	elseif msg == "diag" then
+		ToggleDiag()
 	else
 		Status()
 	end
