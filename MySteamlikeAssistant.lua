@@ -259,18 +259,18 @@ local function Status()
 end
 
 ------------------------------------------------------------------
--- 设置面板（Esc → 界面 → 鼠标视角助手）
+-- 设置面板（Esc → 界面 → MySteamlikeAssistant）
 ------------------------------------------------------------------
 -- 3.3.5a 没有独立的“插件”标签页，插件设置是用 InterfaceOptions_AddCategory
 -- 挂到“界面”设置里的一个分类，与“游戏”“声音”等并列。
 -- 勾选框使用 InterfaceOptionsCheckButtonTemplate，外观与暴雪原生设置一致。
 local optionsPanel = CreateFrame("Frame", "MSA_OptionsPanel", UIParent)
-optionsPanel.name = "鼠标视角助手"
+optionsPanel.name = "MySteamlikeAssistant"
 optionsPanel:Hide()
 
 local optionsTitle = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 optionsTitle:SetPoint("TOPLEFT", 16, -16)
-optionsTitle:SetText("鼠标视角助手")
+optionsTitle:SetText("MySteamlikeAssistant")
 
 local optionsDesc = optionsPanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
 optionsDesc:SetPoint("TOPLEFT", optionsTitle, "BOTTOMLEFT", 0, -8)
@@ -347,7 +347,7 @@ local function ShowHelp()
 	Print("  /msa debug      开/关调试日志")
 	Print("  /msa help       显示本帮助")
 	Print("  /bridge         与 /msa 完全等价的别名")
-	Print("提示：以上设置也可在 Esc → 界面 → 鼠标视角助手中调整")
+	Print("提示：以上设置也可在 Esc → 界面 → MySteamlikeAssistant 中调整")
 end
 
 ------------------------------------------------------------------
