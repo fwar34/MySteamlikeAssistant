@@ -42,7 +42,9 @@ local wasdAutoLock = false
 -- 不再每次按键都调用 IsMouselooking() 判断，避免无谓的重复检查。
 -- 以下情况会重置该标记，以便下次移动能重新判断并锁定：
 --   * 按 F12 / 输入 /msa stop 停止视角；
---   * 按下或松开鼠标右键（手动转向 / 看视角）。
+--   * 按下或松开鼠标右键（手动转向 / 看视角）；
+--   * 低频兜底检测发现客户端已自行退出鼠标视角（见下方“视角状态兜底检测”）。
+-- 该标记统一通过 SetWASDLocked() 读写，以便顺带开关兜底检测。
 local wasdLocked = false
 
 ------------------------------------------------------------------
@@ -66,6 +68,51 @@ local function Debug(msg)
 end
 
 ------------------------------------------------------------------
+-- 视角状态兜底检测（自愈）
+------------------------------------------------------------------
+-- 为什么需要它：wasdLocked 为 true 时，方向键钩子会直接短路（不再判断视角状态）。
+-- 但客户端还有很多“非右键”的停视角路径，插件完全看不到，例如：
+--   * 打开会捕获鼠标的界面（背包 / 角色 / 地图 / Esc 菜单 / 回车打字）；
+--   * 切出游戏窗口后再切回；
+--   * 触摸或点击到界面元素。
+-- 这些情况下客户端已经退出鼠标视角，而 wasdLocked 仍是 true，于是之后
+-- 按 W/A/S/D 全被短路，视角再也锁不回来 —— 外部表现就是“相机不转，
+-- 但光标可见、划过界面还会弹提示框”。
+-- 解决办法：只在 wasdLocked 为 true 期间挂一个低频（0.5 秒）检测，
+-- 一旦发现已不在鼠标视角，就重置标记，让下一次方向键移动重新自动锁定。
+-- 按方向键本身仍然只判断一次，不受影响。
+local LOCK_CHECK_INTERVAL = 0.5
+
+-- 1x1 的空框架，只用来跑 OnUpdate；隐藏时不消耗任何性能。
+local lockCheckFrame = CreateFrame("Frame", nil, UIParent)
+lockCheckFrame:SetSize(1, 1)
+local lockCheckElapsed = 0
+
+-- 统一设置 wasdLocked：为 true 时顺带开启兜底检测，为 false 时关闭。
+-- 由于检测框架只在锁定期间显示，未锁定时没有任何额外开销。
+local function SetWASDLocked(locked)
+	wasdLocked = locked
+	lockCheckElapsed = 0
+	if locked then
+		lockCheckFrame:Show()
+	else
+		lockCheckFrame:Hide()
+	end
+end
+
+lockCheckFrame:SetScript("OnUpdate", function(_, elapsed)
+	lockCheckElapsed = lockCheckElapsed + elapsed
+	if lockCheckElapsed < LOCK_CHECK_INTERVAL then
+		return
+	end
+	lockCheckElapsed = 0
+	if not IsMouselooking() then
+		SetWASDLocked(false)
+		Debug("视角已被客户端关闭（非右键途径），自动锁定标记已重置，下次移动可重新锁定")
+	end
+end)
+
+------------------------------------------------------------------
 -- 业务逻辑
 ------------------------------------------------------------------
 
@@ -81,7 +128,7 @@ end
 -- 停止时清掉 WASD 的“已锁定”标记，让下次方向键移动可以重新判断并锁定。
 local function StopMouselook()
 	MouselookStop()
-	wasdLocked = false
+	SetWASDLocked(false)
 end
 
 ------------------------------------------------------------------
@@ -153,7 +200,7 @@ for _, funcName in ipairs(MOVE_FUNCS) do
 			return
 		end
 		StartMouselook()
-		wasdLocked = true
+		SetWASDLocked(true)
 		Debug("方向键移动触发自动锁视角（" .. funcName .. "）")
 	end)
 end
@@ -167,10 +214,10 @@ end
 -- 这样用右键手动看过视角后，下一次方向键移动仍能重新自动锁定。
 -- hooksecurefunc 只做后置钩子，不会改变右键原有的转向/选中行为。
 hooksecurefunc("TurnOrActionStart", function()
-	wasdLocked = false
+	SetWASDLocked(false)
 end)
 hooksecurefunc("TurnOrActionStop", function()
-	wasdLocked = false
+	SetWASDLocked(false)
 end)
 
 ------------------------------------------------------------------
